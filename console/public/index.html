@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#191b1d">
+    <title>Forcome Ops</title>
+    <link rel="stylesheet" href="/styles.css?v=6">
+    <script src="/app.js?v=5" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">F</span>
+          <span><strong>FORCOME</strong><small>OPS</small></span>
+        </div>
+
+        <nav class="nav" aria-label="主菜单">
+          <p class="nav-label">监控</p>
+          <button class="nav-item is-active" data-view="overview">总览</button>
+          <button class="nav-item" data-view="hosts">主机</button>
+          <button class="nav-item" data-view="alerts">告警 <span id="nav-alert-count" class="nav-count">0</span></button>
+          <button class="nav-item" data-view="thresholds">阈值设置</button>
+
+          <p class="nav-label">扩展</p>
+          <button class="nav-item is-disabled" disabled>自动运维 <span>未启用</span></button>
+          <button class="nav-item is-disabled" disabled>资产管理 <span>未启用</span></button>
+          <button class="nav-item is-disabled" disabled>日志分析 <span>未启用</span></button>
+          <button class="nav-item" data-view="notifications">通知渠道</button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <span class="connection-dot" id="connection-dot"></span>
+          <span id="connection-label">正在连接</span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">FORCOME SERVER OPERATIONS</p>
+            <h1 id="page-title">运行总览</h1>
+          </div>
+          <div class="topbar-actions">
+            <span id="last-updated" class="last-updated">尚未更新</span>
+            <button id="refresh-button" class="icon-button" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
+          </div>
+        </header>
+
+        <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+        <section class="view is-active" data-view-panel="overview">
+          <div class="summary-grid">
+            <article class="summary-card summary-total">
+              <span>主机总数</span>
+              <strong id="summary-total">--</strong>
+              <small>已纳入监控</small>
+            </article>
+            <article class="summary-card summary-online">
+              <span>在线</span>
+              <strong id="summary-online">--</strong>
+              <small>正常上报</small>
+            </article>
+            <article class="summary-card summary-offline">
+              <span>离线</span>
+              <strong id="summary-offline">--</strong>
+              <small>需要处理</small>
+            </article>
+            <article class="summary-card summary-alerts">
+              <span>当前告警</span>
+              <strong id="summary-alerts">--</strong>
+              <small>资源或掉线</small>
+            </article>
+          </div>
+
+          <section class="section-block">
+            <div class="section-heading">
+              <div><h2>主机状态</h2><p>在线情况与核心资源</p></div>
+              <button class="text-button" type="button" data-open-view="hosts">查看全部</button>
+            </div>
+            <div class="table-wrap">
+              <table class="host-table">
+                <thead><tr><th>主机</th><th>状态</th><th>CPU</th><th>内存</th><th>磁盘最高</th><th>最近上报</th></tr></thead>
+                <tbody id="overview-hosts"><tr><td colspan="6" class="empty-cell">正在读取监控数据</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="section-block">
+            <div class="section-heading"><div><h2>需要处理</h2><p>掉线和资源阈值告警</p></div></div>
+            <div id="overview-alerts" class="alert-list"><div class="empty-state">正在检查告警</div></div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="hosts">
+          <section class="section-block flush-top">
+            <div class="section-heading">
+              <div><h2>全部主机</h2><p>CPU、内存和磁盘实时状态</p></div>
+              <a class="primary-button download-button" href="/downloads/Forcome-Windows-Agent-Setup.exe" download>下载 Windows 客户端</a>
+            </div>
+            <div id="host-grid" class="host-grid"><div class="empty-state">正在读取主机</div></div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="alerts">
+          <section class="section-block flush-top">
+            <div class="section-heading"><div><h2>当前告警</h2><p>只显示掉线、CPU、内存和磁盘告警</p></div></div>
+            <div id="all-alerts" class="alert-list"><div class="empty-state">正在检查告警</div></div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="thresholds">
+          <section class="section-block flush-top threshold-panel">
+            <div class="section-heading"><div><h2>告警阈值</h2><p>达到设定比例后进入告警列表</p></div></div>
+            <form id="threshold-form" class="threshold-form">
+              <label><span><strong>CPU 使用率</strong><small>持续高负载</small></span><span class="number-control"><input id="cpu-threshold" name="cpu" type="number" min="1" max="100" required><b>%</b></span></label>
+              <label><span><strong>内存使用率</strong><small>可用内存不足</small></span><span class="number-control"><input id="memory-threshold" name="memory" type="number" min="1" max="100" required><b>%</b></span></label>
+              <label><span><strong>磁盘使用率</strong><small>所有磁盘统一阈值</small></span><span class="number-control"><input id="disk-threshold" name="disk" type="number" min="1" max="100" required><b>%</b></span></label>
+              <div class="form-actions"><span id="threshold-message"></span><button class="primary-button" type="submit">保存阈值</button></div>
+            </form>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="notifications">
+          <section class="section-block flush-top notification-panel">
+            <div class="section-heading"><div><h2>通知渠道</h2><p>告警和恢复消息发送到指定群组</p></div></div>
+            <article class="channel-card">
+              <div class="channel-head">
+                <div><h3>钉钉群机器人</h3><p>主机掉线、CPU、内存和磁盘阈值提醒</p></div>
+                <span id="dingtalk-status" class="channel-status">检查中</span>
+              </div>
+              <dl class="channel-details">
+                <div><dt>发送策略</dt><dd>新增告警发送一次，恢复后再发送一次</dd></div>
+                <div><dt>检查频率</dt><dd id="dingtalk-interval">--</dd></div>
+                <div><dt>提醒设备</dt><dd id="dingtalk-selected-count">0 台</dd></div>
+                <div><dt>最近发送</dt><dd id="dingtalk-last-sent">尚未发送</dd></div>
+                <div><dt>最近结果</dt><dd id="dingtalk-result">正在读取</dd></div>
+              </dl>
+              <form id="notification-host-form" class="device-selection">
+                <div class="device-selection-head">
+                  <div><h4>选择提醒设备</h4><p>未勾选的设备不会发送任何自动提醒</p></div>
+                  <div class="selection-tools">
+                    <button id="select-all-hosts" class="text-button" type="button">全选</button>
+                    <button id="clear-all-hosts" class="text-button" type="button">清空</button>
+                  </div>
+                </div>
+                <div id="notification-host-list" class="device-list"><div class="empty-state">正在读取设备</div></div>
+                <div class="device-selection-actions">
+                  <span id="notification-host-message"></span>
+                  <button class="primary-button" type="submit">保存提醒设备</button>
+                </div>
+              </form>
+              <div class="channel-actions">
+                <span id="dingtalk-test-message"></span>
+                <button id="dingtalk-test-button" class="primary-button" type="button">发送测试通知</button>
+              </div>
+            </article>
+          </section>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

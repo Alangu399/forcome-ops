@@ -1,0 +1,44 @@
+schema_version: 1
+organization: Forcome
+
+defaults:
+  monitoring_mode: zabbix_agent2_active
+  environment: production
+  criticality: medium
+
+sites:
+  - id: primary
+    name: Primary site
+    timezone: Asia/Shanghai
+
+hosts:
+  - name: example-linux-01
+    address: 192.0.2.10
+    site: primary
+    environment: production
+    role: application
+    os_family: linux
+    os_distribution: ubuntu
+    os_version: "24.04"
+    network_zone: server
+    automation_transport: ssh
+    criticality: high
+    owner: platform
+    tags:
+      service: example
+
+  - name: example-windows-01
+    address: 192.0.2.20
+    site: primary
+    environment: production
+    role: application
+    os_family: windows
+    os_distribution: windows_server
+    os_version: "2022"
+    network_zone: server
+    automation_transport: winrm
+    criticality: high
+    owner: platform
+    tags:
+      service: example
+

@@ -1,0 +1,112 @@
+name: forcome-monitoring
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG:-16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zabbix}
+      POSTGRES_USER: ${POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - zabbix-backend
+
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:${ZABBIX_IMAGE_TAG:-alpine-7.0-latest}
+    restart: unless-stopped
+    environment:
+      DB_SERVER_HOST: postgres
+      DB_SERVER_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-zabbix}
+      POSTGRES_USER: ${POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    ports:
+      - "${ZABBIX_SERVER_BIND:-0.0.0.0}:${ZABBIX_SERVER_PORT:-10051}:10051"
+    volumes:
+      - zabbix-alertscripts:/usr/lib/zabbix/alertscripts
+      - zabbix-externalscripts:/usr/lib/zabbix/externalscripts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zabbix-backend
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:${ZABBIX_IMAGE_TAG:-alpine-7.0-latest}
+    restart: unless-stopped
+    environment:
+      DB_SERVER_HOST: postgres
+      DB_SERVER_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-zabbix}
+      POSTGRES_USER: ${POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: 10051
+      ZBX_SERVER_NAME: ${ZBX_SERVER_NAME:-Forcome Monitoring}
+      PHP_TZ: ${PHP_TZ:-Asia/Shanghai}
+    secrets:
+      - postgres_password
+    ports:
+      - "${ZABBIX_WEB_BIND:-127.0.0.1}:${ZABBIX_WEB_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_started
+    networks:
+      - zabbix-backend
+
+  forcome-console:
+    build:
+      context: ./console
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      DATA_DIR: /app/data
+      ZABBIX_API_URL: http://zabbix-web:8080/api_jsonrpc.php
+      ZABBIX_API_USER: ${ZABBIX_API_USER:-Admin}
+      ZABBIX_API_PASSWORD: ${ZABBIX_API_PASSWORD:-}
+      ONLINE_GRACE_SECONDS: ${ONLINE_GRACE_SECONDS:-180}
+      CPU_WARNING_THRESHOLD: ${CPU_WARNING_THRESHOLD:-80}
+      MEMORY_WARNING_THRESHOLD: ${MEMORY_WARNING_THRESHOLD:-90}
+      DISK_WARNING_THRESHOLD: ${DISK_WARNING_THRESHOLD:-80}
+      DINGTALK_WEBHOOK_URL: ${DINGTALK_WEBHOOK_URL:-}
+      DINGTALK_SECRET: ${DINGTALK_SECRET:-}
+      ALERT_CHECK_INTERVAL_SECONDS: ${ALERT_CHECK_INTERVAL_SECONDS:-30}
+    ports:
+      - "${FORCOME_WEB_BIND:-127.0.0.1}:${FORCOME_WEB_PORT:-8090}:8080"
+    volumes:
+      - forcome-console-data:/app/data
+    depends_on:
+      zabbix-web:
+        condition: service_healthy
+    networks:
+      - zabbix-backend
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:-./secrets/postgres_password}
+
+volumes:
+  postgres-data:
+  zabbix-alertscripts:
+  zabbix-externalscripts:
+  forcome-console-data:
+
+networks:
+  zabbix-backend:
+    driver: bridge
