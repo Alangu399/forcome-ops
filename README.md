@@ -65,7 +65,7 @@ inventory source used for the real environment. Do not place credentials in it.
 The web frontend binds to `127.0.0.1:8080` by default. Change the bind address
 only after the target server address and HTTPS approach are known.
 
-The Forcome Ops console binds to `127.0.0.1:8090`. Its first release exposes
-only host availability, offline alerts, CPU, memory, disk usage, and configurable
-resource thresholds. Reserved navigation entries remain disabled until their
-features are implemented.
+The Forcome Ops console binds to `127.0.0.1:8090`. It exposes host availability,
+offline alerts, CPU, memory, disk usage, configurable resource thresholds, and
+opt-in Windows service and TCP port monitoring. Reserved navigation entries
+remain disabled until their features are implemented.

@@ -19,7 +19,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #f3f5f2; }
-button, input { font: inherit; letter-spacing: 0; }
+button, input, select { font: inherit; letter-spacing: 0; }
 button { cursor: pointer; }
 
 .app-shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
@@ -118,6 +118,57 @@ h2 { margin: 0; font-size: 17px; line-height: 1.25; }
 .host-metric span, .disk-title { color: var(--muted); font-size: 12px; }
 .host-metric strong { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
 .disk-list { margin-top: 11px; padding-top: 11px; border-top: 1px solid #ecefec; }
+.monitored-services { margin-top: 11px; padding-top: 11px; border-top: 1px solid #ecefec; }
+.monitored-service-row { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.monitored-service-row > span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+
+.service-panel { max-width: 860px; }
+.service-monitor-form { border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.service-toolbar { display: grid; grid-template-columns: minmax(190px, .8fr) minmax(240px, 1.3fr) 92px; align-items: end; gap: 14px; padding: 18px 20px; }
+.service-toolbar label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+.service-toolbar select, .service-toolbar input { width: 100%; height: 40px; min-width: 0; border: 1px solid #cdd2ce; border-radius: 4px; padding: 0 10px; background: #fff; color: #202326; }
+.service-toolbar select:focus, .service-toolbar input:focus { outline: 2px solid rgba(50,118,177,.18); border-color: var(--blue); }
+.service-count { height: 40px; display: flex; align-items: baseline; justify-content: center; gap: 5px; border-left: 1px solid var(--line); }
+.service-count strong { color: var(--green); font-size: 22px; }
+.service-count span { color: var(--muted); font-size: 11px; }
+.service-list-head { min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 20px; border-top: 1px solid #ecefec; border-bottom: 1px solid #ecefec; background: #f7f8f6; color: var(--muted); font-size: 12px; }
+.service-list { max-height: 460px; overflow-y: auto; }
+.service-option { min-height: 62px; display: grid; grid-template-columns: 18px minmax(0, 1fr) 84px; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid #ecefec; cursor: pointer; }
+.service-option:hover { background: #f7f8f6; }
+.service-option input { width: 18px; height: 18px; margin: 0; accent-color: var(--green); }
+.service-option-name { min-width: 0; }
+.service-option-name strong, .service-option-name small { display: block; overflow-wrap: anywhere; }
+.service-option-name strong { font-size: 13px; }
+.service-option-name small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.service-state { justify-self: end; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.service-state.is-running { color: var(--green); }
+.service-state.is-error { color: var(--red); }
+.service-form-actions { min-height: 68px; display: flex; align-items: center; justify-content: flex-end; gap: 18px; padding: 13px 20px; }
+.service-form-actions span { color: var(--green); font-size: 12px; }
+
+.port-panel { max-width: 760px; }
+.port-monitor-form { border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.port-toolbar { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(280px, 1.2fr); align-items: end; gap: 18px; padding: 18px 20px; }
+.port-toolbar label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+.port-toolbar select, .port-toolbar input { width: 100%; height: 40px; min-width: 0; border: 1px solid #cdd2ce; border-radius: 4px; padding: 0 10px; background: #fff; color: #202326; }
+.port-toolbar select:focus, .port-toolbar input:focus { outline: 2px solid rgba(50,118,177,.18); border-color: var(--blue); }
+.port-toolbar form { display: grid; grid-template-columns: minmax(90px, 1fr) auto; align-items: end; gap: 9px; }
+.port-toolbar form .primary-button { min-height: 40px; }
+.port-help { padding: 0 20px 15px; color: var(--muted); font-size: 12px; }
+.port-list-head { min-height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; border-top: 1px solid #ecefec; border-bottom: 1px solid #ecefec; background: #f7f8f6; color: var(--muted); font-size: 12px; }
+.port-list { max-height: 420px; overflow-y: auto; }
+.port-row { min-height: 68px; display: grid; grid-template-columns: minmax(0, 1fr) 100px 56px; align-items: center; gap: 14px; padding: 10px 20px; border-bottom: 1px solid #ecefec; }
+.port-row > div { min-width: 0; }
+.port-row strong, .port-row small { display: block; }
+.port-row strong { font-size: 13px; }
+.port-row small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.port-state { justify-self: end; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.port-state.is-running { color: var(--green); }
+.port-state.is-error { color: var(--red); }
+.port-state.is-pending { color: var(--muted); }
+.port-remove { color: var(--red); }
+.port-form-actions { min-height: 42px; display: flex; align-items: center; padding: 0 20px 10px; }
+.port-form-actions span { color: var(--green); font-size: 12px; }
 
 .threshold-panel { max-width: 720px; }
 .threshold-form { border: 1px solid var(--line); border-radius: 6px; background: #fff; }
@@ -173,7 +224,8 @@ h2 { margin: 0; font-size: 17px; line-height: 1.25; }
   .app-shell { grid-template-columns: minmax(0, 1fr); max-width: 100vw; overflow-x: hidden; }
   .sidebar { position: static; width: 100%; min-width: 0; height: auto; overflow: hidden; padding: 14px; }
   .brand { padding-bottom: 12px; }
-  .nav { display: flex; overflow-x: auto; gap: 4px; padding-bottom: 3px; scrollbar-width: thin; }
+  .nav { display: flex; overflow-x: auto; gap: 4px; padding-bottom: 3px; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
   .nav-label, .sidebar-foot { display: none; }
   .nav-item { flex: 0 0 auto; width: auto; justify-content: center; min-height: 38px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
   .nav-item.is-disabled { display: flex; }
@@ -195,4 +247,17 @@ h2 { margin: 0; font-size: 17px; line-height: 1.25; }
   .device-selection-actions .primary-button { width: 100%; }
   .channel-actions { align-items: stretch; flex-direction: column; }
   .channel-actions .primary-button { width: 100%; }
+  .service-toolbar { grid-template-columns: 1fr; align-items: stretch; padding: 14px; }
+  .service-count { justify-content: flex-start; border-left: 0; border-top: 1px solid var(--line); padding-top: 10px; }
+  .service-list-head, .service-option { padding-left: 14px; padding-right: 14px; }
+  .service-option { grid-template-columns: 18px minmax(0, 1fr); }
+  .service-option .service-state { grid-column: 2; justify-self: start; }
+  .service-form-actions { align-items: stretch; flex-direction: column; padding: 14px; }
+  .service-form-actions .primary-button { width: 100%; }
+  .port-toolbar { grid-template-columns: 1fr; padding: 14px; }
+  .port-toolbar form { grid-template-columns: minmax(80px, 1fr) auto; }
+  .port-help { padding: 0 14px 14px; }
+  .port-list-head, .port-row { padding-left: 14px; padding-right: 14px; }
+  .port-row { grid-template-columns: minmax(0, 1fr) 88px 44px; gap: 8px; }
+  .port-form-actions { padding-left: 14px; padding-right: 14px; }
 }

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#191b1d">
     <title>Forcome Ops</title>
-    <link rel="stylesheet" href="/styles.css?v=6">
-    <script src="/app.js?v=5" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=9">
+    <script src="/app.js?v=7" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -22,6 +22,8 @@
           <button class="nav-item" data-view="hosts">主机</button>
           <button class="nav-item" data-view="alerts">告警 <span id="nav-alert-count" class="nav-count">0</span></button>
           <button class="nav-item" data-view="thresholds">阈值设置</button>
+          <button class="nav-item" data-view="services">服务监控</button>
+          <button class="nav-item" data-view="ports">端口监控</button>
 
           <p class="nav-label">扩展</p>
           <button class="nav-item is-disabled" disabled>自动运维 <span>未启用</span></button>
@@ -70,7 +72,7 @@
             <article class="summary-card summary-alerts">
               <span>当前告警</span>
               <strong id="summary-alerts">--</strong>
-              <small>资源或掉线</small>
+              <small>资源、端口、服务或掉线</small>
             </article>
           </div>
 
@@ -88,7 +90,7 @@
           </section>
 
           <section class="section-block">
-            <div class="section-heading"><div><h2>需要处理</h2><p>掉线和资源阈值告警</p></div></div>
+            <div class="section-heading"><div><h2>需要处理</h2><p>掉线、资源阈值、服务和端口告警</p></div></div>
             <div id="overview-alerts" class="alert-list"><div class="empty-state">正在检查告警</div></div>
           </section>
         </section>
@@ -105,7 +107,7 @@
 
         <section class="view" data-view-panel="alerts">
           <section class="section-block flush-top">
-            <div class="section-heading"><div><h2>当前告警</h2><p>只显示掉线、CPU、内存和磁盘告警</p></div></div>
+            <div class="section-heading"><div><h2>当前告警</h2><p>显示掉线、资源阈值、Windows 服务和端口告警</p></div></div>
             <div id="all-alerts" class="alert-list"><div class="empty-state">正在检查告警</div></div>
           </section>
         </section>
@@ -122,12 +124,56 @@
           </section>
         </section>
 
+        <section class="view" data-view-panel="services">
+          <section class="section-block flush-top service-panel">
+            <div class="section-heading"><div><h2>Windows 服务监控</h2><p>选择必须保持运行的服务</p></div></div>
+            <form id="service-monitor-form" class="service-monitor-form">
+              <div class="service-toolbar">
+                <label><span>主机</span><select id="service-host-select"></select></label>
+                <label><span>搜索服务</span><input id="service-search" type="search" placeholder="输入服务名称"></label>
+                <div class="service-count"><strong id="service-selected-count">0</strong><span>已选择</span></div>
+              </div>
+              <div class="service-list-head">
+                <span>服务名称与当前状态</span>
+                <div class="selection-tools">
+                  <button id="select-running-services" class="text-button" type="button">全选</button>
+                  <button id="clear-services" class="text-button" type="button">清空</button>
+                </div>
+              </div>
+              <div id="service-list" class="service-list"><div class="empty-state">正在读取 Windows 服务</div></div>
+              <div class="service-form-actions">
+                <span id="service-save-message"></span>
+                <button class="primary-button" type="submit">保存服务监控</button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="ports">
+          <section class="section-block flush-top port-panel">
+            <div class="section-heading"><div><h2>端口监控</h2><p>检查主机本机端口是否可以连接</p></div></div>
+            <div class="port-monitor-form">
+              <div class="port-toolbar">
+                <label><span>主机</span><select id="port-host-select"></select></label>
+                <form id="port-add-form">
+                  <label><span>端口号</span><input id="port-number" type="number" min="1" max="65535" value="4174" required></label>
+                  <button class="primary-button" type="submit">添加监控</button>
+                </form>
+              </div>
+              <div class="port-help">每 30 秒检查一次。端口不可连接时产生告警；未添加的端口不会提醒。</div>
+              <div class="port-list-head"><span>已监控端口</span><span id="port-count">0 个</span></div>
+              <div id="port-list" class="port-list"><div class="empty-state">正在读取端口监控</div></div>
+              <div class="port-form-actions"><span id="port-message" role="status"></span></div>
+            </div>
+          </section>
+        </section>
+
         <section class="view" data-view-panel="notifications">
           <section class="section-block flush-top notification-panel">
             <div class="section-heading"><div><h2>通知渠道</h2><p>告警和恢复消息发送到指定群组</p></div></div>
             <article class="channel-card">
               <div class="channel-head">
-                <div><h3>钉钉群机器人</h3><p>主机掉线、CPU、内存和磁盘阈值提醒</p></div>
+                <div><h3>钉钉群机器人</h3><p>主机掉线、资源阈值、Windows 服务和端口提醒</p></div>
                 <span id="dingtalk-status" class="channel-status">检查中</span>
               </div>
               <dl class="channel-details">

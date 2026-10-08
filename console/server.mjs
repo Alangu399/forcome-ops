@@ -10,6 +10,8 @@ const dataDir = process.env.DATA_DIR || join(rootDir, "data");
 const thresholdFile = join(dataDir, "thresholds.json");
 const notificationStateFile = join(dataDir, "notification-state.json");
 const notificationSettingsFile = join(dataDir, "notification-settings.json");
+const serviceMonitorsFile = join(dataDir, "service-monitors.json");
+const portMonitorsFile = join(dataDir, "port-monitors.json");
 const port = Number(process.env.PORT || 8080);
 const apiUrl = process.env.ZABBIX_API_URL || "http://zabbix-web:8080/api_jsonrpc.php";
 const apiUser = process.env.ZABBIX_API_USER || "";
@@ -37,6 +39,20 @@ let notificationState = {
   lastError: null
 };
 let notificationSettings = { selectedHostIds: [] };
+let serviceMonitors = {};
+let portMonitors = {};
+
+const serviceStateLabels = Object.freeze({
+  0: "正在运行",
+  1: "已暂停",
+  2: "正在启动",
+  3: "正在暂停",
+  4: "正在继续",
+  5: "正在停止",
+  6: "已停止",
+  7: "状态未知",
+  255: "服务不存在"
+});
 
 function sendJson(response, status, payload) {
   response.writeHead(status, {
@@ -117,6 +133,190 @@ async function saveThresholds(value) {
   await writeFile(thresholdFile, `${JSON.stringify(thresholds, null, 2)}\n`, "utf8");
   cache.expiresAt = 0;
   return thresholds;
+}
+
+function normalizeServiceMonitors(value) {
+  const normalized = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return normalized;
+  for (const [hostId, names] of Object.entries(value)) {
+    if (!/^\d+$/.test(hostId) || !Array.isArray(names)) continue;
+    const uniqueNames = [...new Set(names.map(String).map((name) => name.trim()).filter(Boolean))];
+    if (uniqueNames.length) normalized[hostId] = uniqueNames;
+  }
+  return normalized;
+}
+
+async function readServiceMonitors() {
+  try {
+    return normalizeServiceMonitors(JSON.parse(await readFile(serviceMonitorsFile, "utf8")));
+  } catch {
+    return {};
+  }
+}
+
+async function saveServiceMonitors(hostId, serviceNames) {
+  const previousNames = new Set(serviceMonitors[hostId] || []);
+  const nextNames = [...new Set(serviceNames.map(String).map((name) => name.trim()).filter(Boolean))];
+  const retainedNames = new Set(nextNames.filter((name) => previousNames.has(name)));
+  const nextSettings = { ...serviceMonitors };
+  if (nextNames.length) nextSettings[hostId] = nextNames;
+  else delete nextSettings[hostId];
+
+  const retainedAlerts = Object.fromEntries(
+    Object.entries(notificationState.active || {}).filter(([, alert]) => (
+      String(alert.hostId) !== hostId
+      || alert.type !== "service"
+      || retainedNames.has(alert.serviceName)
+    ))
+  );
+
+  serviceMonitors = nextSettings;
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(serviceMonitorsFile, `${JSON.stringify(serviceMonitors, null, 2)}\n`, "utf8");
+  await saveNotificationState({ ...notificationState, active: retainedAlerts });
+  cache = { expiresAt: 0, value: null };
+  return serviceMonitors;
+}
+
+function normalizePortMonitors(value) {
+  const normalized = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return normalized;
+  for (const [hostId, monitors] of Object.entries(value)) {
+    if (!/^\d+$/.test(hostId) || !Array.isArray(monitors)) continue;
+    const unique = new Map();
+    for (const monitor of monitors) {
+      const portNumber = Number(monitor?.port);
+      if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) continue;
+      unique.set(portNumber, {
+        port: portNumber,
+        itemId: /^\d+$/.test(String(monitor.itemId || "")) ? String(monitor.itemId) : "",
+        managed: monitor.managed === true,
+        createdAt: Number.isFinite(Number(monitor.createdAt)) ? Number(monitor.createdAt) : Date.now()
+      });
+    }
+    if (unique.size) normalized[hostId] = [...unique.values()].sort((a, b) => a.port - b.port);
+  }
+  return normalized;
+}
+
+async function readPortMonitors() {
+  try {
+    return normalizePortMonitors(JSON.parse(await readFile(portMonitorsFile, "utf8")));
+  } catch {
+    return {};
+  }
+}
+
+function portItemKey(portNumber) {
+  return "net.tcp.port[127.0.0.1," + portNumber + "]";
+}
+
+const managedPortDescription = "[Forcome Ops port monitor] Local TCP connectivity check.";
+
+async function ensurePortItem(hostId, portNumber) {
+  const key = portItemKey(portNumber);
+  const existing = await authenticatedRpc("item.get", {
+    output: ["itemid", "name", "key_", "status", "description", "flags"],
+    hostids: [hostId],
+    filter: { key_: key }
+  });
+  if (existing.length) {
+    const item = existing[0];
+    const managed = String(item.description || "").includes("[Forcome Ops port monitor]");
+    if (Number(item.status) === 1) {
+      if (!managed) throw new Error("端口 " + portNumber + " 已有停用的同名监控项，请先在 Zabbix 中启用它");
+      await authenticatedRpc("item.update", { itemid: item.itemid, status: 0 });
+    }
+    return { itemId: String(item.itemid), managed, activated: Number(item.status) === 1 };
+  }
+
+  const result = await authenticatedRpc("item.create", {
+    hostid: hostId,
+    name: "Forcome Ops TCP 端口 " + portNumber,
+    key_: key,
+    type: 7,
+    value_type: 3,
+    delay: "30s",
+    history: "7d",
+    trends: "0",
+    status: 0,
+    description: managedPortDescription
+  });
+  return { itemId: String(result.itemids[0]), managed: true, created: true };
+}
+
+async function disableManagedPortItem(monitor) {
+  if (!monitor.managed || !monitor.itemId) return;
+  const items = await authenticatedRpc("item.get", {
+    output: ["itemid", "status", "description"],
+    itemids: [monitor.itemId]
+  });
+  const item = items[0];
+  if (!item || !String(item.description || "").includes("[Forcome Ops port monitor]")) return;
+  if (Number(item.status) !== 1) {
+    await authenticatedRpc("item.update", { itemid: item.itemid, status: 1 });
+  }
+}
+
+async function savePortMonitors(hostId, requestedPorts) {
+  const ports = [...new Set(requestedPorts.map(Number))].sort((a, b) => a - b);
+  if (ports.some((value) => !Number.isInteger(value) || value < 1 || value > 65535)) {
+    throw new Error("端口必须是 1 到 65535 之间的整数");
+  }
+  if (ports.length > 32) throw new Error("每台主机最多监控 32 个端口");
+
+  const previous = portMonitors[hostId] || [];
+  const previousByPort = new Map(previous.map((monitor) => [monitor.port, monitor]));
+  const additions = [];
+  const nextMonitors = [];
+  try {
+    for (const portNumber of ports) {
+      const current = previousByPort.get(portNumber);
+      if (current) {
+        nextMonitors.push(current);
+        continue;
+      }
+      const item = await ensurePortItem(hostId, portNumber);
+      const monitor = { port: portNumber, ...item, createdAt: Date.now() };
+      nextMonitors.push(monitor);
+      additions.push(monitor);
+    }
+  } catch (error) {
+    for (const monitor of additions) {
+      if (!monitor.managed || (!monitor.created && !monitor.activated)) continue;
+      try { await disableManagedPortItem(monitor); } catch (cleanupError) {
+        console.error("Failed to disable incomplete port item " + monitor.port + ":", cleanupError.message);
+      }
+    }
+    throw error;
+  }
+
+  const nextSettings = { ...portMonitors };
+  if (nextMonitors.length) nextSettings[hostId] = nextMonitors;
+  else delete nextSettings[hostId];
+
+  const nextPorts = new Set(ports);
+  const retainedAlerts = Object.fromEntries(
+    Object.entries(notificationState.active || {}).filter(([, alert]) => (
+      String(alert.hostId) !== hostId
+      || alert.type !== "port"
+      || nextPorts.has(Number(alert.port))
+    ))
+  );
+
+  portMonitors = nextSettings;
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(portMonitorsFile, JSON.stringify(portMonitors, null, 2) + "\n", "utf8");
+  await saveNotificationState({ ...notificationState, active: retainedAlerts });
+
+  for (const removed of previous.filter((monitor) => !nextPorts.has(monitor.port))) {
+    try { await disableManagedPortItem(removed); } catch (error) {
+      console.error("Failed to disable removed port item " + removed.port + ":", error.message);
+    }
+  }
+
+  cache = { expiresAt: 0, value: null };
+  return nextMonitors;
 }
 
 async function readNotificationState() {
@@ -211,7 +411,10 @@ async function sendDingTalk(title, markdown) {
 }
 
 function alertKey(alert) {
-  return `${alert.hostId}:${alert.type}:${alert.title}`;
+  const subject = alert.type === "service"
+    ? alert.serviceName
+    : alert.type === "port" ? alert.port : alert.title;
+  return `${alert.hostId}:${alert.type}:${subject}`;
 }
 
 function formatAlertLine(alert) {
@@ -282,6 +485,43 @@ function findItem(items, key) {
   return items.find((item) => item.key_ === key);
 }
 
+function serviceNameFromKey(key) {
+  const match = /^service\.info\[("(?:\\.|[^"])*"),state\]$/.exec(key || "");
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function serviceDisplayName(item, serviceName) {
+  const name = String(item?.name || "");
+  const separator = name.lastIndexOf(" (");
+  return separator >= 0 && name.endsWith(")")
+    ? name.slice(separator + 2, -1)
+    : serviceName;
+}
+
+function extractWindowsServices(items) {
+  const services = new Map();
+  for (const item of items) {
+    const name = serviceNameFromKey(item.key_);
+    if (!name) continue;
+    const state = numberValue(item);
+    services.set(name, {
+      name,
+      displayName: serviceDisplayName(item, name),
+      state,
+      stateLabel: serviceStateLabels[state] || "状态未知",
+      lastSeen: itemTimestamp(item)
+    });
+  }
+  return [...services.values()].sort((a, b) => (
+    a.displayName.localeCompare(b.displayName, "zh-CN") || a.name.localeCompare(b.name, "zh-CN")
+  ));
+}
+
 function mapHost(host, items, now, thresholds) {
   const heartbeat = findItem(items, "agent.ping")
     || findItem(items, "zabbix[host,active_agent,available]");
@@ -301,6 +541,31 @@ function mapHost(host, items, now, thresholds) {
     }))
     .filter((disk) => disk.used !== null)
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  const availableServices = new Map(extractWindowsServices(items).map((service) => [service.name, service]));
+  const monitoredServices = (serviceMonitors[host.hostid] || []).map((name) => (
+    availableServices.get(name) || {
+      name,
+      displayName: name,
+      state: null,
+      stateLabel: "没有状态数据",
+      lastSeen: 0
+    }
+  ));
+  const monitoredPorts = (portMonitors[host.hostid] || []).map((monitor) => {
+    const item = findItem(items, portItemKey(monitor.port));
+    const lastSeen = itemTimestamp(item);
+    const fresh = item && lastSeen > 0 && now - lastSeen <= 120;
+    const value = fresh ? numberValue(item) : null;
+    const ready = value === 0 || value === 1;
+    return {
+      port: monitor.port,
+      state: ready ? value : null,
+      stateLabel: ready ? (value === 1 ? "可连接" : "不可连接")
+        : now - Math.floor(monitor.createdAt / 1000) < 120 ? "等待数据" : "无数据",
+      lastSeen,
+      itemId: monitor.itemId
+    };
+  });
 
   const alerts = [];
   if (!online) {
@@ -340,6 +605,31 @@ function mapHost(host, items, now, thresholds) {
       value: `${disk.used.toFixed(1)}%`
     });
   }
+  if (online) {
+    for (const service of monitoredServices) {
+      if (service.state === 0) continue;
+      alerts.push({
+        type: "service",
+        serviceName: service.name,
+        level: "high",
+        title: `${service.displayName} 服务异常`,
+        detail: `${host.name} 的 ${service.name} 未正常运行`,
+        value: service.stateLabel
+      });
+    }
+    for (const monitoredPort of monitoredPorts) {
+      if (monitoredPort.state === 1) continue;
+      if (monitoredPort.state === null && monitoredPort.stateLabel !== "无数据") continue;
+      alerts.push({
+        type: "port",
+        port: monitoredPort.port,
+        level: "high",
+        title: "TCP 端口 " + monitoredPort.port + " 无法连接",
+        detail: host.name + " 本机端口 " + monitoredPort.port + " 未能通过连接检查",
+        value: monitoredPort.stateLabel
+      });
+    }
+  }
 
   return {
     id: host.hostid,
@@ -350,7 +640,43 @@ function mapHost(host, items, now, thresholds) {
     uptime,
     tags: host.tags || [],
     metrics: { cpu, memory, disks },
+    services: monitoredServices,
+    ports: monitoredPorts,
     alerts
+  };
+}
+
+async function buildServiceCatalog() {
+  const hosts = await authenticatedRpc("host.get", {
+    output: ["hostid", "host", "name", "status"],
+    filter: { status: 0 }
+  });
+  const hostIds = hosts.map((host) => host.hostid);
+  const items = hostIds.length
+    ? await authenticatedRpc("item.get", {
+        output: ["hostid", "name", "key_", "lastvalue", "lastclock", "state"],
+        hostids: hostIds,
+        filter: { status: 0 },
+        search: { key_: "service.info" }
+      })
+    : [];
+  const itemsByHost = new Map();
+  for (const item of items) {
+    if (!itemsByHost.has(item.hostid)) itemsByHost.set(item.hostid, []);
+    itemsByHost.get(item.hostid).push(item);
+  }
+
+  return {
+    hosts: hosts
+      .map((host) => ({
+        id: host.hostid,
+        name: host.name || host.host,
+        technicalName: host.host,
+        monitoredServiceNames: serviceMonitors[host.hostid] || [],
+        services: extractWindowsServices(itemsByHost.get(host.hostid) || [])
+      }))
+      .filter((host) => host.services.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
   };
 }
 
@@ -367,7 +693,7 @@ async function buildOverview() {
   const hostIds = hosts.map((host) => host.hostid);
   const items = hostIds.length
     ? await authenticatedRpc("item.get", {
-        output: ["hostid", "name", "key_", "lastvalue", "lastclock", "units", "state"],
+        output: ["hostid", "name", "key_", "lastvalue", "lastclock", "units", "state", "error"],
         hostids: hostIds,
         filter: { status: 0 }
       })
@@ -446,6 +772,23 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, notificationStatus());
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/services") {
+      sendJson(response, 200, await buildServiceCatalog());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/ports") {
+      const overview = await buildOverview();
+      sendJson(response, 200, {
+        hosts: overview.hosts.map((host) => ({
+          id: host.id,
+          name: host.name,
+          technicalName: host.technicalName,
+          online: host.online,
+          ports: host.ports
+        }))
+      });
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/thresholds") {
       sendJson(response, 200, { thresholds: await saveThresholds(await readJsonRequest(request)) });
       return;
@@ -461,10 +804,57 @@ const server = createServer(async (request, response) => {
       setTimeout(sendAlertChanges, 0);
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/services/settings") {
+      const body = await readJsonRequest(request);
+      const hostId = String(body.hostId || "");
+      const catalog = await buildServiceCatalog();
+      const host = catalog.hosts.find((entry) => entry.id === hostId);
+      if (!host) {
+        sendJson(response, 404, { error: "找不到这台 Windows 主机或服务数据" });
+        return;
+      }
+      const availableNames = new Set(host.services.map((service) => service.name));
+      const serviceNames = Array.isArray(body.serviceNames)
+        ? body.serviceNames.map(String).filter((name) => availableNames.has(name))
+        : [];
+      await saveServiceMonitors(hostId, serviceNames);
+      sendJson(response, 200, { ok: true, hostId, serviceNames });
+      setTimeout(sendAlertChanges, 0);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/ports/settings") {
+      const body = await readJsonRequest(request);
+      const hostId = String(body.hostId || "");
+      if (!/^\d+$/.test(hostId)) {
+        sendJson(response, 400, { error: "请选择一台有效主机" });
+        return;
+      }
+      const hosts = await authenticatedRpc("host.get", {
+        output: ["hostid", "host", "name"],
+        hostids: [hostId],
+        filter: { status: 0 }
+      });
+      if (!hosts.length) {
+        sendJson(response, 404, { error: "找不到这台主机" });
+        return;
+      }
+      if (!Array.isArray(body.ports)) {
+        sendJson(response, 400, { error: "端口列表格式不正确" });
+        return;
+      }
+      const monitors = await savePortMonitors(hostId, body.ports);
+      sendJson(response, 200, {
+        ok: true,
+        hostId,
+        ports: monitors.map((monitor) => monitor.port)
+      });
+      setTimeout(sendAlertChanges, 0);
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/notifications/test") {
       await sendDingTalk(
         "Forcome Ops 测试通知",
-        `### Forcome Ops 钉钉通知测试\n> ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n钉钉机器人已经连接成功，后续将发送主机掉线和资源阈值告警。`
+        `### Forcome Ops 钉钉通知测试\n> ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n钉钉机器人已经连接成功，后续将发送主机掉线、资源阈值、Windows 服务和端口告警。`
       );
       await saveNotificationState({
         ...notificationState,
@@ -492,6 +882,8 @@ const server = createServer(async (request, response) => {
       await saveNotificationSettings({
         selectedHostIds: notificationSettings.selectedHostIds.filter((id) => id !== hostId)
       });
+      await saveServiceMonitors(hostId, []);
+      await savePortMonitors(hostId, []);
       cache = { expiresAt: 0, value: null };
       sendJson(response, 200, {
         ok: true,
@@ -511,6 +903,8 @@ const server = createServer(async (request, response) => {
 
 notificationState = await readNotificationState();
 notificationSettings = await readNotificationSettings();
+serviceMonitors = await readServiceMonitors();
+portMonitors = await readPortMonitors();
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`Forcome Ops listening on ${port}`);
